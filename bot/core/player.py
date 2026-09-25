@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import Optional
+import time
+from typing import Optional, List
 import discord
 
 from .queue import MusicQueue, LoopMode
@@ -14,6 +15,32 @@ FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
     "options": "-vn",
 }
+
+
+class PacedAudioSource(discord.PCMVolumeTransformer):
+    """
+    Обертка над AudioSource, устраняющая эффект ускоренного воспроизведения (fast-forward).
+    При старте FFmpeg тратит 1-2 секунды на сетевое подключение и буферизацию.
+    В этот момент стандартный AudioPlayer в discord.py считает, что он отстает от времени,
+    и выстреливает первые десятки аудиопакетов без задержки.
+    Сброс тайминга после чтения первого пакета восстанавливает точную задержку 20мс на пакет.
+    """
+
+    def __init__(self, original: discord.AudioSource, voice_client: discord.VoiceClient, volume: float = 1.0):
+        super().__init__(original, volume=volume)
+        self.voice_client = voice_client
+        self._synced = False
+
+    def read(self) -> bytes:
+        ret = super().read()
+        if not self._synced and ret:
+            self._synced = True
+            # Синхронизируем внутренний таймер плеера discord.py
+            if hasattr(self.voice_client, "_player") and self.voice_client._player:
+                p = self.voice_client._player
+                p.loops = 0
+                p._start = time.perf_counter()
+        return ret
 
 
 class GuildPlayer:
@@ -48,6 +75,22 @@ class GuildPlayer:
         if not self._loop_task or self._loop_task.done():
             self._loop_task = asyncio.create_task(self._playback_loop())
 
+    def enqueue(self, track: Track) -> int:
+        """Добавляет трек в очередь. Запускает проигрывание, только если бот сейчас ничего не играет."""
+        self.queue.add(track)
+        position = len(self.queue)
+        if self.voice_client and not (self.voice_client.is_playing() or self.voice_client.is_paused()):
+            self.next_track_event.set()
+        return position
+
+    def enqueue_multiple(self, tracks: List[Track]) -> int:
+        """Добавляет список треков в очередь."""
+        self.queue.add_multiple(tracks)
+        count = len(tracks)
+        if self.voice_client and not (self.voice_client.is_playing() or self.voice_client.is_paused()):
+            self.next_track_event.set()
+        return count
+
     def _cancel_idle_timer(self):
         if self._idle_task and not self._idle_task.done():
             self._idle_task.cancel()
@@ -77,69 +120,78 @@ class GuildPlayer:
         await self.bot.wait_until_ready()
 
         while True:
-            self.next_track_event.clear()
-            self._cancel_idle_timer()
-
-            track: Optional[Track] = self.queue.next()
-            if not track:
-                # Очередь пуста — запускаем таймер ожидания
-                self._start_idle_timer()
-                # Ждем появления нового трека или внешнего сигнала
-                try:
-                    await asyncio.wait_for(self.next_track_event.wait(), timeout=3600)
-                    continue
-                except asyncio.TimeoutError:
-                    continue
-
-            # Получаем свежий stream URL непосредственно перед стартом
-            stream_url = await track.get_stream_url()
-            if not stream_url:
-                logger.error(f"Не удалось получить аудиопоток для трека '{track.display_name}'. Пропускаем.")
-                if self.text_channel:
-                    try:
-                        await self.text_channel.send(
-                            f"⚠️ Не удалось загрузить аудио для **{track.display_name}**. Переход к следующему треку."
-                        )
-                    except Exception:
-                        pass
-                continue
-
-            if not self.is_connected:
-                logger.warning("Голосовое соединение разорвано перед стартом трека.")
-                break
-
             try:
-                raw_source = discord.FFmpegPCMAudio(stream_url, **FFMPEG_OPTIONS)
-                volume_source = discord.PCMVolumeTransformer(raw_source, volume=self.volume / 100.0)
-            except Exception as e:
-                logger.error(f"Ошибка создания FFmpeg аудио источника: {e}")
-                if self.text_channel:
+                self.next_track_event.clear()
+                self._cancel_idle_timer()
+
+                track: Optional[Track] = self.queue.next()
+                if not track:
+                    # Очередь пуста — запускаем таймер ожидания
+                    self._start_idle_timer()
                     try:
-                        await self.text_channel.send(f"❌ Ошибка декодирования трека **{track.display_name}**.")
+                        await asyncio.wait_for(self.next_track_event.wait(), timeout=3600)
+                        continue
+                    except asyncio.TimeoutError:
+                        continue
+
+                # Если предыдущее воспроизведение еще физически не завершилось — ждем
+                while self.voice_client and (self.voice_client.is_playing() or self.voice_client.is_paused()):
+                    await asyncio.sleep(0.2)
+
+                # Получаем свежий stream URL непосредственно перед стартом
+                stream_url = await track.get_stream_url()
+                if not stream_url:
+                    logger.error(f"Не удалось получить аудиопоток для трека '{track.display_name}'. Пропускаем.")
+                    if self.text_channel:
+                        try:
+                            await self.text_channel.send(
+                                f"⚠️ Не удалось загрузить аудио для **{track.display_name}**. Переход к следующему треку."
+                            )
+                        except Exception:
+                            pass
+                    continue
+
+                if not self.is_connected:
+                    logger.warning("Голосовое соединение разорвано перед стартом трека.")
+                    break
+
+                try:
+                    raw_source = discord.FFmpegPCMAudio(stream_url, **FFMPEG_OPTIONS)
+                    volume_source = PacedAudioSource(raw_source, self.voice_client, volume=self.volume / 100.0)
+                except Exception as e:
+                    logger.error(f"Ошибка создания FFmpeg аудио источника: {e}")
+                    if self.text_channel:
+                        try:
+                            await self.text_channel.send(f"❌ Ошибка декодирования трека **{track.display_name}**.")
+                        except Exception:
+                            pass
+                    continue
+
+                def after_playback(error):
+                    if error:
+                        logger.error(f"Ошибка воспроизведения: {error}")
+                    self.bot.loop.call_soon_threadsafe(self.next_track_event.set)
+
+                self.voice_client.play(volume_source, after=after_playback)
+
+                # Отправляем сообщение "Сейчас играет"
+                await self._send_now_playing(track)
+
+                # Ожидаем завершения воспроизведения или вызова skip
+                await self.next_track_event.wait()
+
+                # Удаляем интерактивные кнопки старого Now Playing
+                if self.now_playing_message:
+                    try:
+                        await self.now_playing_message.edit(view=None)
                     except Exception:
                         pass
-                continue
 
-            def after_playback(error):
-                if error:
-                    logger.error(f"Ошибка воспроизведения: {error}")
-                self.bot.loop.call_soon_threadsafe(self.next_track_event.set)
-
-            self.voice_client.play(volume_source, after=after_playback)
-
-            # Отправляем сообщение "Сейчас играет"
-            await self._send_now_playing(track)
-
-            # Ожидаем завершения воспроизведения или вызова skip
-            await self.next_track_event.wait()
-
-            # Удаляем старое Now Playing сообщение по завершении трека при желании
-            if self.now_playing_message:
-                try:
-                    # Убираем интерактивные кнопки после завершения
-                    await self.now_playing_message.edit(view=None)
-                except Exception:
-                    pass
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Непредвиденная ошибка в цикле воспроизведения: {e}", exc_info=True)
+                await asyncio.sleep(1)
 
     async def _send_now_playing(self, track: Track):
         if not self.text_channel:

@@ -105,8 +105,7 @@ class MusicCog(commands.Cog, name="Музыка"):
             return
 
         if result.is_playlist:
-            player.queue.add_multiple(result.tracks)
-            player.next_track_event.set()
+            player.enqueue_multiple(result.tracks)
 
             total_duration_str = player.queue.formatted_total_duration
             embed = create_playlist_added_embed(
@@ -119,11 +118,12 @@ class MusicCog(commands.Cog, name="Музыка"):
             await interaction.followup.send(embed=embed)
         else:
             track = result.tracks[0]
-            player.queue.add(track)
-            player.next_track_event.set()
+            is_currently_playing = bool(
+                player.voice_client and (player.voice_client.is_playing() or player.voice_client.is_paused())
+            )
+            position = player.enqueue(track)
 
-            position = len(player.queue)
-            if not player.voice_client.is_playing() and not player.voice_client.is_paused() and position == 1:
+            if not is_currently_playing and position == 1:
                 await interaction.followup.send(
                     f"🎶 Начинаем воспроизведение: **{track.display_name}**"
                 )
