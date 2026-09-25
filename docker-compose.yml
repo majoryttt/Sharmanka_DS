@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  sharmanka:
+    build: .
+    container_name: sharmanka_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Опционально: проброс cookies.txt для yt-dlp при необходимости
+      - ./cookies.txt:/app/cookies.txt:ro
