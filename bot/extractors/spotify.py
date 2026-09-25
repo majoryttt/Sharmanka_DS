@@ -42,7 +42,7 @@ class SpotifyExtractor(BaseExtractor):
     async def _resolve_audio(self, artist: str, title: str) -> Optional[str]:
         if not self.ytdl_fallback:
             return None
-        search_query = f"ytsearch:{artist} - {title}"
+        search_query = f"ytsearch1:{artist} - {title}"
         return await self.ytdl_fallback._resolve_single_stream(search_query)
 
     async def _fetch_oembed(self, url: str) -> Optional[Dict[str, Any]]:

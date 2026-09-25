@@ -18,8 +18,13 @@ YTDL_OPTIONS: Dict[str, Any] = {
     "logtostderr": False,
     "quiet": True,
     "no_warnings": True,
-    "default_search": "ytsearch",
+    "default_search": "ytsearch1",
     "source_address": "0.0.0.0",
+    "socket_timeout": 5,
+    "retries": 2,
+    "fragment_retries": 2,
+    "youtube_include_dash_manifest": False,
+    "youtube_include_hls_manifest": False,
 }
 
 if config and config.ytdl_cookies_file:
@@ -38,6 +43,9 @@ class YtDlpExtractor(BaseExtractor):
         def _fetch():
             opts = dict(YTDL_OPTIONS)
             opts["extract_flat"] = False
+            opts["skip_download"] = True
+            opts["youtube_include_dash_manifest"] = False
+            opts["youtube_include_hls_manifest"] = False
             with yt_dlp.YoutubeDL(opts) as ydl:
                 return ydl.extract_info(webpage_url, download=False)
 
@@ -96,7 +104,7 @@ class YtDlpExtractor(BaseExtractor):
     ) -> ExtractionResult:
         query = query.strip()
         is_search = not (query.startswith("http://") or query.startswith("https://"))
-        target = f"ytsearch:{query}" if is_search else query
+        target = f"ytsearch1:{query}" if is_search else query
 
         def _extract():
             with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ydl:

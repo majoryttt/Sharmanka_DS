@@ -111,7 +111,7 @@ class MusicCog(commands.Cog, name="Музыка"):
     @app_commands.command(name="play", description="Воспроизвести трек по названию или ссылке (Яндекс, YouTube, Spotify и др.)")
     @app_commands.describe(query="Ссылка (Яндекс Музыка, YouTube, Spotify, SoundCloud) или поисковый запрос")
     async def play(self, interaction: discord.Interaction, query: str):
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
 
         player = await self._ensure_voice(interaction)
         if not player:
@@ -140,7 +140,7 @@ class MusicCog(commands.Cog, name="Музыка"):
                 source=result.source_name,
                 requester=requester_name,
             )
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed, ephemeral=True)
         else:
             track = result.tracks[0]
             is_currently_playing = bool(
@@ -150,11 +150,12 @@ class MusicCog(commands.Cog, name="Музыка"):
 
             if not is_currently_playing and position == 1:
                 await interaction.followup.send(
-                    f"🎶 Начинаем воспроизведение: **{track.display_name}**"
+                    f"🎶 Начинаем воспроизведение: **{track.display_name}**",
+                    ephemeral=True,
                 )
             else:
                 embed = create_track_added_embed(track, position=position)
-                await interaction.followup.send(embed=embed)
+                await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="pause", description="Приостановить воспроизведение")
     async def pause(self, interaction: discord.Interaction):
@@ -223,7 +224,17 @@ class MusicCog(commands.Cog, name="Музыка"):
 
         embed = create_now_playing_embed(player.queue.current_track, player)
         view = PlayerControlView(player)
+
+        # Удаляем предыдущее сообщение, чтобы в канале всегда был ровно один активный плеер
+        if player.now_playing_message:
+            try:
+                await player.now_playing_message.delete()
+            except Exception:
+                pass
+
+        player.text_channel = interaction.channel
         await interaction.response.send_message(embed=embed, view=view)
+        player.now_playing_message = await interaction.original_response()
 
     @app_commands.command(name="volume", description="Настроить громкость воспроизведения (1-150%)")
     @app_commands.describe(level="Уровень громкости в процентах от 1 до 150")

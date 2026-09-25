@@ -11,8 +11,12 @@ from ..config import config
 
 logger = logging.getLogger("sharmanka.core.player")
 
+# Оптимизированные параметры FFmpeg для мгновенного старта воспроизведения (-analyzeduration 0 -probesize 32k)
 FFMPEG_OPTIONS = {
-    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+    "before_options": (
+        "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
+        "-analyzeduration 0 -probesize 32k"
+    ),
     "options": "-vn",
 }
 
@@ -20,9 +24,6 @@ FFMPEG_OPTIONS = {
 class PacedAudioSource(discord.PCMVolumeTransformer):
     """
     Обертка над AudioSource, устраняющая эффект ускоренного воспроизведения (fast-forward).
-    При старте FFmpeg тратит 1-2 секунды на сетевое подключение и буферизацию.
-    В этот момент стандартный AudioPlayer в discord.py считает, что он отстает от времени,
-    и выстреливает первые десятки аудиопакетов без задержки.
     Сброс тайминга после чтения первого пакета восстанавливает точную задержку 20мс на пакет.
     """
 
@@ -124,6 +125,16 @@ class GuildPlayer:
         except asyncio.CancelledError:
             pass
 
+    async def _set_voice_status(self, text: Optional[str]):
+        """Устанавливает или сбрасывает статус голосового канала (Voice Channel Status)."""
+        if not self.voice_client or not self.voice_client.channel:
+            return
+        channel = self.voice_client.channel
+        try:
+            await self.bot.http.edit_voice_channel_status(text, channel_id=channel.id)
+        except Exception as e:
+            logger.debug(f"Не удалось обновить статус голосового канала {channel.id}: {e}")
+
     async def _playback_loop(self):
         await self.bot.wait_until_ready()
 
@@ -134,7 +145,13 @@ class GuildPlayer:
 
                 track: Optional[Track] = self.queue.next()
                 if not track:
-                    # Очередь пуста — запускаем таймер ожидания
+                    # Очередь пуста — сбрасываем статус канала и запускаем таймер ожидания
+                    await self._set_voice_status(None)
+                    if self.now_playing_message:
+                        try:
+                            await self.now_playing_message.edit(view=None)
+                        except Exception:
+                            pass
                     self._start_idle_timer()
                     try:
                         await asyncio.wait_for(self.next_track_event.wait(), timeout=3600)
@@ -182,18 +199,11 @@ class GuildPlayer:
 
                 self.voice_client.play(volume_source, after=after_playback)
 
-                # Отправляем сообщение "Сейчас играет"
+                # Обновляем или отправляем сообщение "Сейчас играет"
                 await self._send_now_playing(track)
 
-                # Ожидаем завершения воспроизведения или вызова skip
+                # Ожидаем завершения воспроизведения текущего трека или skip
                 await self.next_track_event.wait()
-
-                # Удаляем интерактивные кнопки старого Now Playing
-                if self.now_playing_message:
-                    try:
-                        await self.now_playing_message.edit(view=None)
-                    except Exception:
-                        pass
 
             except asyncio.CancelledError:
                 break
@@ -208,6 +218,22 @@ class GuildPlayer:
         embed = create_now_playing_embed(track, self)
         view = PlayerControlView(self)
 
+        # 1. Отображение играющей песни в статусе голосового канала
+        status_text = f"🎶 {track.display_name}"[:100]
+        await self._set_voice_status(status_text)
+
+        # 2. Редактирование существующего сообщения активного плеера без дублирования
+        if self.now_playing_message:
+            try:
+                await self.now_playing_message.edit(embed=embed, view=view)
+                return
+            except discord.NotFound:
+                self.now_playing_message = None
+            except Exception as e:
+                logger.debug(f"Не удалось обновить сообщение плеера на месте: {e}")
+                self.now_playing_message = None
+
+        # Если старого сообщения нет (или оно удалено), отправляем новое
         try:
             self.now_playing_message = await self.text_channel.send(embed=embed, view=view)
         except Exception as e:
@@ -230,6 +256,14 @@ class GuildPlayer:
         """Останавливает воспроизведение, очищает очередь и сбрасывает плеер."""
         self.queue.clear()
         self.queue.loop_mode = LoopMode.OFF
+        await self._set_voice_status(None)
+        if self.now_playing_message:
+            try:
+                await self.now_playing_message.edit(view=None)
+            except Exception:
+                pass
+            self.now_playing_message = None
+
         if self.voice_client and (self.voice_client.is_playing() or self.voice_client.is_paused()):
             self.voice_client.stop()
         self.next_track_event.set()
@@ -238,6 +272,7 @@ class GuildPlayer:
         """Полная остановка и отключение от голосового канала."""
         await self.stop()
         self._cancel_idle_timer()
+        await self._set_voice_status(None)
         if self._loop_task and not self._loop_task.done():
             self._loop_task.cancel()
             self._loop_task = None

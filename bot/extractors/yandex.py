@@ -73,7 +73,7 @@ class YandexMusicExtractor(BaseExtractor):
         # 2. Fallback на YouTube через YtDlpExtractor
         if self.ytdl_fallback:
             fallback_query = f"{artist_name} - {track_title}"
-            return await self.ytdl_fallback._resolve_single_stream(f"ytsearch:{fallback_query}")
+            return await self.ytdl_fallback._resolve_single_stream(f"ytsearch1:{fallback_query}")
 
         return None
 
