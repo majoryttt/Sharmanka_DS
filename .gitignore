@@ -39,3 +39,8 @@ cookies.txt
 
 # Logs
 *.log
+
+# Tests
+tests/
+test/
+
