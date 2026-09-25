@@ -1,4 +1,4 @@
-version: '3.8'
+name: sharmanka
 
 services:
   sharmanka:
@@ -7,6 +7,6 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    volumes:
-      # Опционально: проброс cookies.txt для yt-dlp при необходимости
-      - ./cookies.txt:/app/cookies.txt:ro
+    # volumes:
+    #   - ./cookies.txt:/app/cookies.txt:ro
+
