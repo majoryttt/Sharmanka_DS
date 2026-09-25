@@ -66,10 +66,18 @@ class GuildPlayer:
         if text_channel:
             self.text_channel = text_channel
 
-        if not self.is_connected:
-            self.voice_client = await voice_channel.connect(self_deaf=True)
-        elif self.voice_client.channel != voice_channel:
-            await self.voice_client.move_to(voice_channel)
+        guild_vc = self.guild.voice_client
+        if guild_vc and guild_vc.is_connected():
+            self.voice_client = guild_vc
+            if self.voice_client.channel != voice_channel:
+                await self.voice_client.move_to(voice_channel)
+        else:
+            if guild_vc:
+                try:
+                    await guild_vc.disconnect(force=True)
+                except Exception:
+                    pass
+            self.voice_client = await voice_channel.connect(self_deaf=True, timeout=15.0, reconnect=True)
 
         self._cancel_idle_timer()
         if not self._loop_task or self._loop_task.done():

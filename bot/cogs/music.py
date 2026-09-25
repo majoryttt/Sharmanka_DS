@@ -64,21 +64,46 @@ class MusicCog(commands.Cog, name="Музыка"):
             )
             return None
 
-        player = self.get_player(interaction.guild)
         voice_channel = interaction.user.voice.channel
-
-        if not player.is_connected:
-            await player.connect(voice_channel, interaction.channel)
-        elif player.voice_client.channel != voice_channel:
-            # Проверяем, есть ли другие слушатели в канале бота
-            listeners = [m for m in player.voice_client.channel.members if not m.bot]
-            if len(listeners) == 0:
-                await player.connect(voice_channel, interaction.channel)
-            else:
+        bot_member = interaction.guild.me or interaction.guild.get_member(self.bot.user.id)
+        if bot_member:
+            perms = voice_channel.permissions_for(bot_member)
+            if not perms.connect:
                 await interaction.followup.send(
-                    f"❌ Бот уже используется в канале **{player.voice_client.channel.name}**!", ephemeral=True
+                    f"❌ У бота нет прав для подключения к каналу **{voice_channel.name}** (`Connect`). Проверьте права роли бота!",
+                    ephemeral=True,
                 )
                 return None
+            if not perms.speak:
+                await interaction.followup.send(
+                    f"❌ У бота нет прав говорить в канале **{voice_channel.name}** (`Speak`). Проверьте права роли бота!",
+                    ephemeral=True,
+                )
+                return None
+
+        player = self.get_player(interaction.guild)
+
+        try:
+            if not player.is_connected:
+                await player.connect(voice_channel, interaction.channel)
+            elif player.voice_client.channel != voice_channel:
+                listeners = [m for m in player.voice_client.channel.members if not m.bot]
+                if len(listeners) == 0:
+                    await player.connect(voice_channel, interaction.channel)
+                else:
+                    await interaction.followup.send(
+                        f"❌ Бот уже используется в канале **{player.voice_client.channel.name}**!", ephemeral=True
+                    )
+                    return None
+        except Exception as e:
+            logger.error(f"Ошибка подключения к голосовому каналу {voice_channel.id}: {e}", exc_info=True)
+            await interaction.followup.send(
+                "❌ **Не удалось подключиться к голосовому каналу (таймаут Discord Voice).**\n"
+                "• Убедитесь, что у бота есть доступ к каналу.\n"
+                "• Если бот работает в РФ, шлюз этого канала может блокироваться. Попробуйте в настройках канала (*Настройки канала -> Обзор -> Переопределение региона*) сменить регион на **Rotterdam** или **Frankfurt**.",
+                ephemeral=True,
+            )
+            return None
 
         player.text_channel = interaction.channel
         return player
