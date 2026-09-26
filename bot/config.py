@@ -12,6 +12,7 @@ class Config:
     yandex_music_token: Optional[str] = None
     spotify_client_id: Optional[str] = None
     spotify_client_secret: Optional[str] = None
+    apple_music_token: Optional[str] = None
     default_volume: int = 100
     idle_timeout_seconds: int = 300
     ytdl_cookies_file: Optional[str] = None
@@ -27,6 +28,7 @@ class Config:
         ym_token = os.getenv("YANDEX_MUSIC_TOKEN", "").strip() or None
         spot_id = os.getenv("SPOTIFY_CLIENT_ID", "").strip() or None
         spot_sec = os.getenv("SPOTIFY_CLIENT_SECRET", "").strip() or None
+        am_token = os.getenv("APPLE_MUSIC_TOKEN", "").strip() or None
         cookies = os.getenv("YTDL_COOKIES_FILE", "").strip() or None
 
         try:
@@ -44,6 +46,7 @@ class Config:
             yandex_music_token=ym_token,
             spotify_client_id=spot_id,
             spotify_client_secret=spot_sec,
+            apple_music_token=am_token,
             default_volume=max(1, min(150, default_vol)),
             idle_timeout_seconds=max(10, idle_timeout),
             ytdl_cookies_file=cookies,

@@ -5,6 +5,7 @@ from .base import Track, ExtractionResult, BaseExtractor
 from .ytdlp import YtDlpExtractor
 from .yandex import YandexMusicExtractor
 from .spotify import SpotifyExtractor
+from .applemusic import AppleMusicExtractor
 
 logger = logging.getLogger("sharmanka.extractors.resolver")
 
@@ -51,6 +52,7 @@ class TrackResolver:
         self.ytdl = YtDlpExtractor()
         self.yandex = YandexMusicExtractor(ytdl_fallback_extractor=self.ytdl)
         self.spotify = SpotifyExtractor(ytdl_fallback_extractor=self.ytdl)
+        self.applemusic = AppleMusicExtractor(ytdl_fallback_extractor=self.ytdl)
         self.cache = QueryCache()
 
     async def resolve(
@@ -86,7 +88,17 @@ class TrackResolver:
             except Exception as e:
                 logger.error(f"Ошибка извлечения из Spotify: {e}", exc_info=True)
 
-        # 3. Универсальный yt-dlp (YouTube, SoundCloud, веб-стримы, текстовый поиск)
+        # 3. Проверка Apple Music
+        if self.applemusic.can_handle(query):
+            try:
+                res = await self.applemusic.extract(query, requester, requester_avatar)
+                if res and res.tracks:
+                    self.cache.set(query, res)
+                    return res
+            except Exception as e:
+                logger.error(f"Ошибка извлечения из Apple Music: {e}", exc_info=True)
+
+        # 4. Универсальный yt-dlp (YouTube, SoundCloud, веб-стримы, текстовый поиск)
         try:
             res = await self.ytdl.extract(query, requester, requester_avatar)
             if res and res.tracks:

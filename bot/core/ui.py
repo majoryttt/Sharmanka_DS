@@ -20,6 +20,9 @@ SOURCE_COLORS = {
     "soundcloud": 0xFF5500,   # Оранжевый (SoundCloud)
     "bandcamp": 0x629AA9,
     "twitch": 0x9146FF,
+    "applemusic": 0xFC3C44,   # Розово-красный (Apple Music)
+    "applemusic_album": 0xFC3C44,
+    "applemusic_playlist": 0xFC3C44,
 }
 
 SOURCE_ICONS = {
@@ -31,6 +34,9 @@ SOURCE_ICONS = {
     "spotify": "🟢 Spotify",
     "spotify_album": "🟢 Spotify (Альбом)",
     "spotify_playlist": "🟢 Spotify (Плейлист)",
+    "applemusic": "🍎 Apple Music",
+    "applemusic_album": "🍎 Apple Music (Альбом)",
+    "applemusic_playlist": "🍎 Apple Music (Плейлист)",
     "youtube": "🔴 YouTube",
     "youtube_playlist": "🔴 YouTube (Плейлист)",
     "soundcloud": "🟠 SoundCloud",
