@@ -99,11 +99,45 @@ class TrackResolver:
                 logger.error(f"Ошибка извлечения из Apple Music: {e}", exc_info=True)
 
         # 4. Универсальный yt-dlp (YouTube, SoundCloud, веб-стримы, текстовый поиск)
+        is_url = query.startswith("http://") or query.startswith("https://")
         try:
             res = await self.ytdl.extract(query, requester, requester_avatar)
             if res and res.tracks:
                 self.cache.set(query, res)
-            return res
+                return res
         except Exception as e:
-            logger.error(f"Ошибка извлечения через yt-dlp: {e}", exc_info=True)
-            return ExtractionResult(tracks=[], is_playlist=False, source_name="unknown")
+            logger.warning(f"Ошибка извлечения через yt-dlp: {e}")
+
+        # 5. Если это текстовый поиск и YouTube ничего не нашел — каскадный поиск
+        if not is_url:
+            # 5a. Пробуем Яндекс Музыку
+            try:
+                logger.info(f"Каскадный поиск: пробуем Яндекс Музыку для '{query}'")
+                res = await self.yandex.search(query, requester, requester_avatar)
+                if res and res.tracks:
+                    self.cache.set(query, res)
+                    return res
+            except Exception as e:
+                logger.debug(f"Ошибка каскадного поиска в Яндекс Музыке: {e}")
+
+            # 5b. Пробуем SoundCloud
+            try:
+                logger.info(f"Каскадный поиск: пробуем SoundCloud для '{query}'")
+                res = await self.ytdl.extract(f"scsearch5:{query}", requester, requester_avatar)
+                if res and res.tracks:
+                    self.cache.set(query, res)
+                    return res
+            except Exception as e:
+                logger.debug(f"Ошибка каскадного поиска в SoundCloud: {e}")
+
+            # 5c. Пробуем Apple Music (iTunes Search)
+            try:
+                logger.info(f"Каскадный поиск: пробуем Apple Music для '{query}'")
+                res = await self.applemusic.extract(f"am:{query}", requester, requester_avatar)
+                if res and res.tracks:
+                    self.cache.set(query, res)
+                    return res
+            except Exception as e:
+                logger.debug(f"Ошибка каскадного поиска в Apple Music: {e}")
+
+        return ExtractionResult(tracks=[], is_playlist=False, source_name="unknown")

@@ -103,19 +103,15 @@ class YandexMusicExtractor(BaseExtractor):
             _stream_resolver=stream_resolver,
         )
 
-    async def extract(
+    async def search(
         self, query: str, requester: str, requester_avatar: Optional[str] = None
     ) -> ExtractionResult:
-        client = await self._get_client()
-        query = query.strip()
-
-        # 1. Поисковый запрос с префиксом (ym: или yandex:)
-        if query.lower().startswith(("ym:", "yandex:")):
-            clean_query = query.split(":", 1)[1].strip()
+        try:
+            client = await self._get_client()
+            clean_query = query.strip()
             search_res = await client.search(clean_query, type_="track")
             if search_res and search_res.tracks and search_res.tracks.results:
                 top_track = search_res.tracks.results[0]
-                # Получаем полную информацию о треке
                 full_tracks = await client.tracks([top_track.id])
                 if full_tracks:
                     track = self._convert_ym_track(full_tracks[0], requester, requester_avatar)
@@ -125,7 +121,20 @@ class YandexMusicExtractor(BaseExtractor):
                         is_playlist=False,
                         source_name="yandex",
                     )
-            return ExtractionResult(tracks=[], is_playlist=False, source_name="yandex")
+        except Exception as e:
+            logger.debug(f"Ошибка поиска в Яндекс Музыке: {e}")
+        return ExtractionResult(tracks=[], is_playlist=False, source_name="yandex")
+
+    async def extract(
+        self, query: str, requester: str, requester_avatar: Optional[str] = None
+    ) -> ExtractionResult:
+        client = await self._get_client()
+        query = query.strip()
+
+        # 1. Поисковый запрос с префиксом (ym: или yandex:)
+        if query.lower().startswith(("ym:", "yandex:")):
+            clean_query = query.split(":", 1)[1].strip()
+            return await self.search(clean_query, requester, requester_avatar)
 
         # 2. Одиночный трек
         track_match = TRACK_REGEX.search(query)
