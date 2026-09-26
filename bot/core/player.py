@@ -11,13 +11,19 @@ from ..config import config
 
 logger = logging.getLogger("sharmanka.core.player")
 
-# Оптимизированные параметры FFmpeg для мгновенного старта воспроизведения (-analyzeduration 0 -probesize 32k)
+# Оптимизированные параметры FFmpeg:
+# - reconnect: автопереподключение при сетевых сбоях
+# - rw_timeout 15000000: таймаут чтения 15 сек (предотвращает вечное зависание FFmpeg)
+# - analyzeduration 0 / probesize 32k: мгновенный старт (~50 мс)
+# - threads 2: ограничение нагрузки на CPU
 FFMPEG_OPTIONS = {
     "before_options": (
         "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
+        "-rw_timeout 15000000 "
+        "-nostdin "
         "-analyzeduration 0 -probesize 32k"
     ),
-    "options": "-vn",
+    "options": "-vn -threads 2",
 }
 
 
@@ -25,6 +31,7 @@ class PacedAudioSource(discord.PCMVolumeTransformer):
     """
     Обертка над AudioSource, устраняющая эффект ускоренного воспроизведения (fast-forward).
     Сброс тайминга после чтения первого пакета восстанавливает точную задержку 20мс на пакет.
+    Также гарантирует корректное завершение процесса FFmpeg при вызове cleanup().
     """
 
     def __init__(self, original: discord.AudioSource, voice_client: discord.VoiceClient, volume: float = 1.0):
@@ -36,12 +43,19 @@ class PacedAudioSource(discord.PCMVolumeTransformer):
         ret = super().read()
         if not self._synced and ret:
             self._synced = True
-            # Синхронизируем внутренний таймер плеера discord.py
             if hasattr(self.voice_client, "_player") and self.voice_client._player:
                 p = self.voice_client._player
                 p.loops = 0
                 p._start = time.perf_counter()
         return ret
+
+    def cleanup(self):
+        super().cleanup()
+        if hasattr(self.original, "cleanup"):
+            try:
+                self.original.cleanup()
+            except Exception:
+                pass
 
 
 class GuildPlayer:
@@ -90,6 +104,8 @@ class GuildPlayer:
         position = len(self.queue)
         if self.voice_client and not (self.voice_client.is_playing() or self.voice_client.is_paused()):
             self.next_track_event.set()
+        else:
+            self._prefetch_next_track()
         return position
 
     def enqueue_multiple(self, tracks: List[Track]) -> int:
@@ -98,7 +114,22 @@ class GuildPlayer:
         count = len(tracks)
         if self.voice_client and not (self.voice_client.is_playing() or self.voice_client.is_paused()):
             self.next_track_event.set()
+        else:
+            self._prefetch_next_track()
         return count
+
+    def _prefetch_next_track(self):
+        """Предварительно загружает ссылку на аудиопоток следующего трека в фоне для бесшовного перехода."""
+        if len(self.queue) > 0:
+            next_t = self.queue.tracks[0]
+            if not next_t.stream_url and next_t._stream_resolver:
+                async def _task():
+                    try:
+                        await next_t.get_stream_url()
+                        logger.debug(f"Предзагружен stream URL для: {next_t.display_name}")
+                    except Exception:
+                        pass
+                asyncio.create_task(_task())
 
     def _cancel_idle_timer(self):
         if self._idle_task and not self._idle_task.done():
@@ -161,7 +192,7 @@ class GuildPlayer:
 
                 # Если предыдущее воспроизведение еще физически не завершилось — ждем
                 while self.voice_client and (self.voice_client.is_playing() or self.voice_client.is_paused()):
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.1)
 
                 # Получаем свежий stream URL непосредственно перед стартом
                 stream_url = await track.get_stream_url()
@@ -177,8 +208,14 @@ class GuildPlayer:
                     continue
 
                 if not self.is_connected:
-                    logger.warning("Голосовое соединение разорвано перед стартом трека.")
-                    break
+                    # Даем шанс автопереподключению
+                    try:
+                        await asyncio.sleep(2.0)
+                    except asyncio.CancelledError:
+                        break
+                    if not self.is_connected:
+                        logger.warning("Голосовое соединение разорвано перед стартом трека.")
+                        break
 
                 try:
                     raw_source = discord.FFmpegPCMAudio(stream_url, **FFMPEG_OPTIONS)
@@ -198,6 +235,9 @@ class GuildPlayer:
                     self.bot.loop.call_soon_threadsafe(self.next_track_event.set)
 
                 self.voice_client.play(volume_source, after=after_playback)
+
+                # Предварительно загружаем следующий трек в фоне для нулевой задержки перехода
+                self._prefetch_next_track()
 
                 # Обновляем или отправляем сообщение "Сейчас играет"
                 await self._send_now_playing(track)

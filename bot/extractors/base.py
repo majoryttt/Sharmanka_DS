@@ -36,6 +36,8 @@ class Track:
         return self.title
 
     async def get_stream_url(self) -> Optional[str]:
+        if self.stream_url:
+            return self.stream_url
         if self._stream_resolver:
             try:
                 resolved = await self._stream_resolver()
@@ -45,6 +47,20 @@ class Track:
             except Exception:
                 pass
         return self.stream_url
+
+    def clone(self, requester: str, requester_avatar: Optional[str] = None) -> "Track":
+        return Track(
+            title=self.title,
+            artist=self.artist,
+            webpage_url=self.webpage_url,
+            duration=self.duration,
+            thumbnail=self.thumbnail,
+            source=self.source,
+            requester=requester,
+            requester_avatar=requester_avatar,
+            stream_url=self.stream_url,
+            _stream_resolver=self._stream_resolver,
+        )
 
 
 @dataclass

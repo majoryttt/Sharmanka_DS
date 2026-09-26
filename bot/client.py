@@ -1,5 +1,6 @@
 import logging
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 logger = logging.getLogger("sharmanka.client")
@@ -18,6 +19,31 @@ class SharmankaBot(commands.Bot):
         )
 
     async def setup_hook(self):
+        # Глобальный обработчик ошибок слэш-команд
+        @self.tree.error
+        async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+            cmd_name = interaction.command.name if interaction.command else "unknown"
+            logger.error(f"Ошибка выполнения слэш-команды '{cmd_name}': {error}", exc_info=error)
+
+            error_message = "❌ Произошла непредвиденная ошибка при выполнении команды."
+            if isinstance(error, app_commands.CommandOnCooldown):
+                error_message = f"⏳ Команда на перезарядке. Попробуйте через {error.retry_after:.1f} сек."
+            elif isinstance(error, app_commands.MissingPermissions):
+                error_message = "❌ У вас недостаточно прав для выполнения этой команды."
+            elif isinstance(error, app_commands.BotMissingPermissions):
+                missing = ", ".join(error.missing_permissions)
+                error_message = f"❌ У бота недостаточно прав: {missing}."
+            elif isinstance(error, app_commands.CheckFailure):
+                error_message = "❌ Вы не можете использовать эту команду здесь."
+
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(error_message, ephemeral=True)
+                else:
+                    await interaction.response.send_message(error_message, ephemeral=True)
+            except Exception as send_err:
+                logger.debug(f"Не удалось отправить сообщение об ошибке: {send_err}")
+
         # Загрузка расширений (cogs)
         initial_extensions = [
             "bot.cogs.general",

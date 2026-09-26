@@ -1,7 +1,10 @@
+import logging
 import discord
 from typing import List, Optional
 from .queue import LoopMode
 from ..extractors.base import Track
+
+logger = logging.getLogger("sharmanka.core.ui")
 
 SOURCE_COLORS = {
     "yandex": 0xFFCC00,       # Желтый (Яндекс)
@@ -235,3 +238,14 @@ class PlayerControlView(discord.ui.View):
     async def stop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("⏹️ Воспроизведение остановлено, очередь очищена.", ephemeral=True)
         await self.player.stop()
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        custom_id = getattr(item, "custom_id", "unknown")
+        logger.error(f"Ошибка при взаимодействии с кнопкой '{custom_id}': {error}", exc_info=error)
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Не удалось выполнить действие. Попробуйте еще раз.", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Не удалось выполнить действие. Попробуйте еще раз.", ephemeral=True)
+        except Exception:
+            pass

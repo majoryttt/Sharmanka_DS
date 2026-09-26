@@ -58,13 +58,15 @@ class YandexMusicExtractor(BaseExtractor):
     ) -> Optional[str]:
         # 1. Попытка получить прямую ссылку через API Яндекса (если есть токен с подпиской)
         try:
-            download_info = await track_obj.get_download_info(get_direct_links=True)
+            download_info = await track_obj.get_download_info_async(get_direct_links=True)
             if download_info:
                 # Сортируем по битрейту (наивысший в начале)
                 sorted_info = sorted(
                     download_info, key=lambda x: getattr(x, "bitrate_in_kbps", 0), reverse=True
                 )
-                direct_link = sorted_info[0].direct_link
+                direct_link = getattr(sorted_info[0], "direct_link", None)
+                if not direct_link:
+                    direct_link = await sorted_info[0].get_direct_link_async()
                 if direct_link:
                     return direct_link
         except Exception as e:

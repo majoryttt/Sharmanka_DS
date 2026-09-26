@@ -104,10 +104,13 @@ class YtDlpExtractor(BaseExtractor):
     ) -> ExtractionResult:
         query = query.strip()
         is_search = not (query.startswith("http://") or query.startswith("https://"))
+        is_playlist = "list=" in query.lower() or "playlist" in query.lower() or "/sets/" in query.lower()
         target = f"ytsearch1:{query}" if is_search else query
 
         def _extract():
-            with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ydl:
+            opts = dict(YTDL_OPTIONS)
+            opts["extract_flat"] = "in_playlist" if is_playlist else False
+            with yt_dlp.YoutubeDL(opts) as ydl:
                 return ydl.extract_info(target, download=False)
 
         info = await asyncio.to_thread(_extract)
