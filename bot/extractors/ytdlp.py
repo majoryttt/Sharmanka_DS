@@ -33,11 +33,54 @@ YTDL_OPTIONS: Dict[str, Any] = {
     },
 }
 
-if config and config.ytdl_cookies_file:
-    if os.path.exists(config.ytdl_cookies_file):
-        YTDL_OPTIONS["cookiefile"] = config.ytdl_cookies_file
-    elif os.path.exists(f"/app/{config.ytdl_cookies_file}"):
-        YTDL_OPTIONS["cookiefile"] = f"/app/{config.ytdl_cookies_file}"
+def _setup_cookiefile() -> Optional[str]:
+    if not (config and config.ytdl_cookies_file):
+        return None
+    candidates = [
+        config.ytdl_cookies_file,
+        os.path.join(os.getcwd(), config.ytdl_cookies_file),
+        f"/app/{config.ytdl_cookies_file}",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            if os.path.isdir(p):
+                logger.error(
+                    f"Путь к cookies '{p}' является папкой, а не файлом! "
+                    "Docker создает папку, если файл cookies.txt отсутствовал на хосте при запуске контейнера. "
+                    "Удалите эту папку на сервере (rm -rf cookies.txt) и создайте файл."
+                )
+                continue
+            if not os.path.isfile(p):
+                continue
+            try:
+                if os.path.getsize(p) == 0:
+                    logger.warning(f"Файл cookies '{p}' пуст и будет проигнорирован.")
+                    continue
+                with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                    first_chunk = f.read(512).strip()
+                    if first_chunk.startswith(("{", "[")):
+                        logger.error(
+                            f"Файл cookies '{p}' сохранен в формате JSON! yt-dlp требует формат Netscape. "
+                            "Экспортируйте куки в формате Netscape (расширение 'Get cookies.txt LOCALLY'). "
+                            "Файл временно проигнорирован во избежание сбоев."
+                        )
+                        continue
+                    if "# Netscape" in first_chunk or "\t" in first_chunk:
+                        logger.info(f"Файл cookies успешно загружен: {p}")
+                        return p
+                    else:
+                        logger.warning(
+                            f"Файл cookies '{p}' не содержит формат Netscape (нет табуляций или строки # Netscape). "
+                            "Файл проигнорирован."
+                        )
+                        continue
+            except Exception as e:
+                logger.warning(f"Ошибка чтения файла cookies '{p}': {e}")
+    return None
+
+cookie_file = _setup_cookiefile()
+if cookie_file:
+    YTDL_OPTIONS["cookiefile"] = cookie_file
 
 
 class YtDlpExtractor(BaseExtractor):
