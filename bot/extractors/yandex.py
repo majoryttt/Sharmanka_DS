@@ -122,7 +122,7 @@ class YandexMusicExtractor(BaseExtractor):
                         source_name="yandex",
                     )
         except Exception as e:
-            logger.debug(f"Ошибка поиска в Яндекс Музыке: {e}")
+            logger.warning(f"Ошибка поиска в Яндекс Музыке: {e}")
         return ExtractionResult(tracks=[], is_playlist=False, source_name="yandex")
 
     async def extract(

@@ -1,8 +1,23 @@
 import os
+import shutil
 import asyncio
 import logging
 from typing import Optional, List, Dict, Any
 import yt_dlp
+try:
+    from yt_dlp.cookies import YoutubeDLCookieJar
+    _orig_cookiejar_save = YoutubeDLCookieJar.save
+
+    def _safe_cookiejar_save(self, filename=None, *args, **kwargs):
+        try:
+            _orig_cookiejar_save(self, filename, *args, **kwargs)
+        except (OSError, PermissionError) as e:
+            # Игнорируем ошибку записи, если cookies смонтированы в Docker как read-only (:ro)
+            pass
+
+    YoutubeDLCookieJar.save = _safe_cookiejar_save
+except Exception:
+    pass
 
 from .base import BaseExtractor, Track, ExtractionResult
 from ..config import config
@@ -66,8 +81,15 @@ def _setup_cookiefile() -> Optional[str]:
                         )
                         continue
                     if "# Netscape" in first_chunk or "\t" in first_chunk:
-                        logger.info(f"Файл cookies успешно загружен: {p}")
-                        return p
+                        # Копируем в /tmp, чтобы yt-dlp мог сохранять обновленные токены даже при read-only volume (:ro)
+                        tmp_path = "/tmp/sharmanka_cookies.txt"
+                        try:
+                            shutil.copyfile(p, tmp_path)
+                            logger.info(f"Файл cookies успешно загружен и скопирован в {tmp_path}")
+                            return tmp_path
+                        except Exception as e:
+                            logger.info(f"Файл cookies успешно загружен из: {p}")
+                            return p
                     else:
                         logger.warning(
                             f"Файл cookies '{p}' не содержит формат Netscape (нет табуляций или строки # Netscape). "
