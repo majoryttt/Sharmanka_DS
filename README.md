@@ -8,7 +8,6 @@
   <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python Version">
   <img src="https://img.shields.io/badge/discord.py-2.4+-5865F2.svg" alt="discord.py">
   <img src="https://img.shields.io/badge/docker-ready-2496ED.svg" alt="Docker Ready">
-  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License">
 </p>
 
 ---
@@ -155,38 +154,3 @@ Docker-образ уже содержит все системные библио
 | `/clear` | Полностью очистить очередь треков |
 | `/ping` | Проверить задержку бота до серверов Discord |
 | `/help` | Показать справку по командам бота |
-
----
-
-## 🛠 Архитектура
-
-```
-Sharmanka_DS/
-├── bot/
-│   ├── cogs/
-│   │   ├── general.py         # Команды /help и /ping
-│   │   └── music.py           # Музыкальные команды (/play, /queue, /loop и др.)
-│   ├── core/
-│   │   ├── player.py          # GuildPlayer — управление сессией, таймерами, префетчингом и FFmpeg
-│   │   ├── queue.py           # MusicQueue — логика очереди и режимов повтора
-│   │   └── ui.py              # Discord UI (кнопки плеера и Embed-карточки)
-│   ├── extractors/
-│   │   ├── base.py            # Базовые классы Track и BaseExtractor
-│   │   ├── resolver.py        # Диспетчер сервисов + LRU/TTL кеш (QueryCache)
-│   │   ├── applemusic.py      # Экстрактор Apple Music (Amp API + пагинация больших плейлистов)
-│   │   ├── yandex.py          # Экстрактор Яндекс.Музыки (HQ 320 kbps + fallback)
-│   │   ├── spotify.py         # Экстрактор Spotify
-│   │   └── ytdlp.py           # Универсальный экстрактор yt-dlp (YouTube, SoundCloud, радио)
-│   ├── client.py              # SharmankaBot и обработка ошибок команд
-│   └── config.py              # Валидация и загрузка настроек
-├── Dockerfile                 # Готовый образ со встроенными ffmpeg и libopus
-├── docker-compose.yml         # Манифест быстрого запуска
-├── requirements.txt           # Зависимости проекта
-└── main.py                    # Точка входа
-```
-
----
-
-## 📄 Лицензия
-
-Проект распространяется под лицензией [MIT](LICENSE).
